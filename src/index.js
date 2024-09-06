@@ -4,7 +4,7 @@ dotenv.config({ path: "./env" });
 import app from "./app.js";
 
 // Use environment variable for port or default to 8000
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 8000;
 
 connectDB()
   .then(() => {
