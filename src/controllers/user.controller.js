@@ -222,4 +222,134 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
   }
 });
 
-export { registerUser, loginUser, logoutUser, refreshAccessToken };
+const changeCurrentPassword = asyncHandler(async (req, res) => {
+  const { oldPassword, newPassword } = req.body;
+  const user = await User.findById(req.user?._id);
+  if (!user) {
+    throw new ApiError(401, "Unauthorized Access");
+  }
+  const isPasswordValid = await user.isPasswordCorrect(oldPassword);
+  if (!isPasswordValid) {
+    throw new ApiError(401, "Invalid Password");
+  }
+  user.password = newPassword;
+  await user.save({ validateBeforeSave: false });
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, {}, "Password changed successfully"));
+});
+
+const getCurrentUser = asyncHandler(async (req, res) => {
+  const user = req.user;
+  if (!user) {
+    throw new ApiError(401, "Unauthorized Access");
+  }
+  return res
+    .status(200)
+    .json(new ApiResponse(200, user, "Current user Fetched Scuccessfully"));
+});
+
+const updateAccountDetails = asyncHandler(async (req, res) => {
+  const { username, fullName } = req.body;
+
+  // Ensure at least one field is provided (username or fullName)
+  if (!username && !fullName) {
+    throw new ApiError(401, "Please enter a username or full name");
+  }
+
+  if (!req.user) {
+    throw new ApiError(401, "Unauthorized request");
+  }
+
+  // Set default values if some fields are missing in the request
+  const newUsername = username || req.user.username;
+  const newFullName = fullName || req.user.fullName;
+
+  const user = await User.findByIdAndUpdate(
+    req.user._id,
+    {
+      $set: {
+        fullName: newFullName,
+        username: newUsername,
+      },
+    },
+    {
+      new: true,
+    }
+  ).select("-password");
+
+  res
+    .status(200)
+    .json(new ApiResponse(200, user, "Account details updated successfully"));
+});
+
+const updateUserAvatar = asyncHandler(async (req, res) => {
+  const avatarLocalPath = req.files?.avatar[0]?.path;
+  if (!avatarLocalPath) {
+    throw new ApiError(401, "Avatar file is Missing");
+  }
+  if (!req.user) {
+    throw new ApiError(401, "unauthorized Access");
+  }
+  const response = await uploadOnCloudinary(avatarLocalPath);
+  if (!response.url) {
+    throw new ApiError(501, "Error while uploading on avatar");
+  }
+  const user = await User.findByIdAndUpdate(
+    req.user._id,
+    {
+      $set: {
+        avatar: response.url,
+      },
+    },
+    {
+      new: true,
+    }
+  ).select("-password");
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, user, "Avatar updated successfully"));
+});
+
+const updateUserCoverImage = asyncHandler(async (req, res) => {
+  const coverImageLocalPath = req.files?.coverImage[0]?.path;
+  if (!coverImageLocalPath) {
+    throw new ApiError(401, "CoverImage file is Missing");
+  }
+  if (!req.user) {
+    throw new ApiError(401, "unauthorized Access");
+  }
+  const response = await uploadOnCloudinary(coverImageLocalPath);
+  if (!response.url) {
+    throw new ApiError(501, "Error while uploading on CoverImage");
+  }
+  const user = await User.findByIdAndUpdate(
+    req.user._id,
+    {
+      $set: {
+        coverImage: response.url,
+      },
+    },
+    {
+      new: true,
+    }
+  ).select("-password");
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, user, "CoverImage updated successfully"));
+});
+
+export {
+  registerUser,
+  loginUser,
+  logoutUser,
+  refreshAccessToken,
+  changeCurrentPassword,
+  getCurrentUser,
+  updateAccountDetails,
+  updateUserAvatar,
+  updateUserCoverImage,
+};
