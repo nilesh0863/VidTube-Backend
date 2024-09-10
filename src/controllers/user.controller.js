@@ -342,6 +342,94 @@ const updateUserCoverImage = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, user, "CoverImage updated successfully"));
 });
 
+const getUserChannelProfile = asyncHandler(async (req, res) => {
+  //get username from url
+  const { username } = req.params;
+
+  //check we get username or not
+  if (!username?.trim()) {
+    throw new ApiError(401, "Username is missing");
+  }
+
+  //aggregation pipline
+  const channel = await User.aggregate([
+    {
+      //this is first stage
+      $match: {
+        username: username?.toLowerCase(),
+      },
+      //from this stage we get the specific user that channel details we want
+    },
+    {
+      //this is second stage
+      $lookup: {
+        from: "subscriptions", // we have to convert this model name in lowercase and plural and this is subscription model
+        localField: "_id", // we are writing pipeline in user so this is User id
+        foreignField: "channel", // this is subscription model field
+        as: "subscribers", // we have given this stage 2 data a name that we can refer in below stages
+        // and in this stage we get all document of channell and its subscriber ex:(i have 25000 subscribers on my channel)
+      },
+    },
+    {
+      //this is third stage
+      //in this stage we want channels that current user subscribedTO ex:(i have suscribed 25channels on youtube)
+      $lookup: {
+        from: "subscriptions",
+        localField: "_id",
+        foreignField: "subscriber",
+        as: "subscribedTo",
+      },
+    },
+    {
+      //$addFields = this add additional fields in User
+      $addFields: {
+        //calculate total subscribers
+        subscribersCount: {
+          $size: "$subscribers", //we have to use $ because this is field and this is from stage two
+        },
+        //calculat total channels that user subscribed
+        channelsSubscribedToCount: {
+          $size: "$subscribedTo",
+        },
+        //subscriber button value true or false like if true then grey and false then red
+        isSubscribed: {
+          // so for this we have to chack that we present in subscribers data or not if we present means we have subscribed this channel
+          // $cond = this is used for condition like if else
+          $cond: {
+            //$in = look userid in subscribers and it work on both arrays and object
+            if: { $in: [req.user?._id, "$subscribers.subscriber"] },
+            then: true,
+            else: false,
+          },
+        },
+      },
+    },
+    {
+      //$project = this is used so that we can give selected fields
+      //we have write 1 for every field that we have to pass, this 1 work as flag
+      $project: {
+        fullName: 1,
+        username: 1,
+        email: 1,
+        subscribersCount: 1,
+        channelsSubscribedToCount: 1,
+        avatar: 1,
+        coverImage: 1,
+        isSubscribed: 1,
+      },
+    },
+  ]);
+  if (!channel?.length) {
+    throw new ApiError(404, "channel does not exists");
+  }
+
+  return res
+    .status(200)
+    .json(
+      new ApiResponse(200, channel[0], "user channel fetched successfully")
+    );
+});
+
 export {
   registerUser,
   loginUser,
@@ -352,4 +440,5 @@ export {
   updateAccountDetails,
   updateUserAvatar,
   updateUserCoverImage,
+  getUserChannelProfile,
 };
