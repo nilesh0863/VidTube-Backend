@@ -4,6 +4,7 @@ import { User } from "../models/user.model.js";
 import { uploadOnCloudinary } from "../utils/cloudinary.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import jwt from "jsonwebtoken";
+import mongoose from "mongoose";
 
 const generateAccessAndRefreshToken = async (userId) => {
   const user = await User.findById(userId);
@@ -430,6 +431,74 @@ const getUserChannelProfile = asyncHandler(async (req, res) => {
     );
 });
 
+const getWatchHistory = asyncHandler(async (req, res) => {
+  if (!req.user) {
+    throw new ApiError(401, "Unauthorized Request");
+  }
+
+  //aggregation pipeline
+  const user = await User.aggregate([
+    {
+      $match: {
+        _id: new mongoose.Types.ObjectId(req.user._id), //if we have to match with then we have to give in this format because mongodb id is not only string
+        // and this aggregation works direct on mongodb not in mongoose. and if we work with mongoose it will extract string in _id automaticaly behind the scene but we dont have mongoose here
+      },
+    },
+    {
+      $lookup: {
+        //we are currently in user looking for all the videos of user watch history
+        from: "videos",
+        localField: "watchHistory",
+        foreignField: "_id",
+        as: "watchHistory", // here we get list of videos data but in than we have owner field and
+        //that is not direct data type , it is a refrence of user model so because of that we cant get it here,
+        //so for that we to write nested pipeline so we can get video owner details
+        pipeline: [
+          {
+            //here we are in videos because above pipeline gives all watch history vidoes
+            $lookup: {
+              from: "users",
+              localField: "owner",
+              foreignField: "_id",
+              as: "owner", // here we get all owner details name username everything
+              //but we dont want everything we just want fullname,username, avatar so we write one more nested pipeline
+              pipeline: [
+                {
+                  $project: {
+                    fullName: 1,
+                    username: 1,
+                    avatar: 1,
+                  },
+                },
+              ],
+            },
+          },
+          {
+            // this pipeline is only for sending clear data , we can ignore it if you want
+            $addFields: {
+              owner: {
+                //$first is used for accesing array first element in our case above pipeline have given
+                //array and we have first object that have user detail so we directly access that object with the help of this pipeline
+                $first: "$owner",
+              },
+            },
+          },
+        ],
+      },
+    },
+  ]);
+
+  return res
+    .status(200)
+    .json(
+      new ApiResponse(
+        200,
+        user[0].watchHistory,
+        "Watch history fetched successfully"
+      )
+    );
+});
+
 export {
   registerUser,
   loginUser,
@@ -441,4 +510,5 @@ export {
   updateUserAvatar,
   updateUserCoverImage,
   getUserChannelProfile,
+  getWatchHistory,
 };
