@@ -1,7 +1,10 @@
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { ApiError } from "../utils/ApiError.js";
 import { User } from "../models/user.model.js";
-import { uploadOnCloudinary } from "../utils/cloudinary.js";
+import {
+  deleteFromCloudinary,
+  uploadOnCloudinary,
+} from "../utils/cloudinary.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import jwt from "jsonwebtoken";
 import mongoose from "mongoose";
@@ -162,8 +165,8 @@ const logoutUser = asyncHandler(async (req, res) => {
   await User.findByIdAndUpdate(
     req.user._id,
     {
-      $set: {
-        refreshToken: undefined,
+      $unset: {
+        refreshToken: 1, // this removes the field from the document
       },
     },
     {
@@ -286,12 +289,19 @@ const updateAccountDetails = asyncHandler(async (req, res) => {
 });
 
 const updateUserAvatar = asyncHandler(async (req, res) => {
-  const avatarLocalPath = req.files?.avatar[0]?.path;
+  // const avatarLocalPath = req.files?.avatar[0]?.path;
+  const avatarLocalPath = req.file?.path;
   if (!avatarLocalPath) {
     throw new ApiError(401, "Avatar file is Missing");
   }
   if (!req.user) {
     throw new ApiError(401, "unauthorized Access");
+  }
+  const oldAvatarUrl = req.user.avatar;
+  const publicId = oldAvatarUrl.split("/").pop().split(".")[0];
+  const deleteResponse = await deleteFromCloudinary(publicId);
+  if (!deleteResponse) {
+    throw new ApiError(501, "Error while deleting avatar");
   }
   const response = await uploadOnCloudinary(avatarLocalPath);
   if (!response.url) {
@@ -315,12 +325,19 @@ const updateUserAvatar = asyncHandler(async (req, res) => {
 });
 
 const updateUserCoverImage = asyncHandler(async (req, res) => {
-  const coverImageLocalPath = req.files?.coverImage[0]?.path;
+  // const coverImageLocalPath = req.files?.coverImage[0]?.path;
+  const coverImageLocalPath = req.file?.path;
   if (!coverImageLocalPath) {
     throw new ApiError(401, "CoverImage file is Missing");
   }
   if (!req.user) {
     throw new ApiError(401, "unauthorized Access");
+  }
+  const oldCoverImageUrl = req.user.coverImage;
+  const publicId = oldCoverImageUrl.split("/").pop().split(".")[0];
+  const deleteResponse = await deleteFromCloudinary(publicId);
+  if (!deleteResponse) {
+    throw new ApiError(501, "Error while deleting avatar");
   }
   const response = await uploadOnCloudinary(coverImageLocalPath);
   if (!response.url) {
