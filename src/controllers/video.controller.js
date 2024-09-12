@@ -130,7 +130,7 @@ const deleteVideo = asyncHandler(async (req, res) => {
 });
 
 const getAllVideos = asyncHandler(async (req, res) => {
-  //TODO: get all videos based on query, sort, pagination
+  // Extract query parameters for pagination, search, and sorting
   const {
     page = 1,
     limit = 10,
@@ -140,20 +140,18 @@ const getAllVideos = asyncHandler(async (req, res) => {
     userId,
   } = req.query;
 
-  //this conver page and limit to numbers
-  const pageNumber = parseInt(page);
-  const limitNumber = parseInt(limit);
-
+  // Initialize the filter with only published videos
   let filter = { isPublished: true };
 
+  // Add search functionality based on title or description
   if (query) {
     filter.$or = [
-      // Search by title or description using regex so by default regex is case sensitive
-      //if we dont want case sensitive then we have to add filed $options:"i"
       { title: { $regex: query, $options: "i" } },
       { description: { $regex: query, $options: "i" } },
     ];
   }
+
+  // Filter by user ID if provided and valid
   if (userId) {
     if (!isValidObjectId(userId)) {
       throw new ApiError(401, "userId is not valid");
@@ -161,55 +159,45 @@ const getAllVideos = asyncHandler(async (req, res) => {
     filter.owner = new mongoose.Types.ObjectId(userId);
   }
 
+  // Set sort options based on the query parameters
   const sortOptions = {};
   sortOptions[sortBy] = sortType === "asc" ? 1 : -1;
 
+  // Construct the aggregation pipeline
   const pipeline = [
-    {
-      $match: filter,
-    },
+    { $match: filter },
     {
       $lookup: {
         from: "users",
         localField: "owner",
         foreignField: "_id",
         as: "owner",
-        pipeline: [
-          {
-            $project: {
-              username: 1,
-              avatar: 1,
-            },
-          },
-        ],
+        pipeline: [{ $project: { username: 1, avatar: 1 } }],
       },
     },
-    {
-      $sort: sortOptions,
-    },
-    {
-      $skip: (pageNumber - 1) * limitNumber,
-    },
-    {
-      $limit: limitNumber,
-    },
-    {
-      $addFields: {
-        owner: {
-          $first: "$owner",
-        },
-      },
-    },
+    { $addFields: { owner: { $first: "$owner" } } },
   ];
 
-  const response = await Video.aggregate(pipeline).exec();
+  // Use mongooseAggregatePaginate for pagination
+  const options = {
+    page: parseInt(page, 10),
+    limit: parseInt(limit, 10),
+    sort: sortOptions,
+  };
+
+  // Apply pagination on the aggregation pipeline
+  const response = await Video.aggregatePaginate(
+    Video.aggregate(pipeline),
+    options
+  );
+
   if (!response) {
-    new ApiError(500, "Error fetching videos");
+    throw new ApiError(500, "Error fetching videos");
   }
 
   return res
     .status(200)
-    .json(new ApiResponse(200, response, "videos fetched successsfully"));
+    .json(new ApiResponse(200, response, "videos fetched successfully"));
 });
 
 const getVideoById = asyncHandler(async (req, res) => {
