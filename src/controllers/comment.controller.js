@@ -20,9 +20,9 @@ const getVideoComments = asyncHandler(async (req, res) => {
   if (!videoId) {
     throw new ApiError(400, "Video Id is missing");
   }
-  if (!req.user) {
-    throw new ApiError(401, "Unauthorized Acess");
-  }
+  // if (!req.user) {
+  //   throw new ApiError(401, "Unauthorized Acess");
+  // }
   if (!isValidObjectId(videoId)) {
     throw new ApiError(400, "Video Id is Invalid");
   }

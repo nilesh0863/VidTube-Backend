@@ -8,6 +8,33 @@ import { Video } from "../models/video.model.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import mongoose, { isValidObjectId } from "mongoose";
 
+const addVideoView = asyncHandler(async (req, res) => {
+  const { videoId } = req.params;
+  if (!req.user) {
+    throw new ApiError(401, "Unauthorized request");
+  }
+  if (!videoId) {
+    throw new ApiError(400, "Video Id is missing");
+  }
+
+  if (!isValidObjectId(videoId)) {
+    throw new ApiError(400, "Video Id is Invalid");
+  }
+
+  const video = await Video.findById(videoId);
+
+  if (!video) {
+    throw new ApiError(400, "Video not found");
+  }
+
+  video.views += 1;
+
+  await video.save();
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, {}, "video view successfully added"));
+});
 const publishVideo = asyncHandler(async (req, res) => {
   //get data
   // validate if user is login or not
@@ -202,12 +229,15 @@ const getAllVideos = asyncHandler(async (req, res) => {
 
 const getVideoById = asyncHandler(async (req, res) => {
   const { videoId } = req.params;
+  if (!req.user) {
+    throw new ApiError(401, "Unauthorized Access");
+  }
 
   if (!videoId) {
-    throw new ApiError(401, "videoId is missing");
+    throw new ApiError(401, "videoId is  missing");
   }
   if (!isValidObjectId(videoId)) {
-    throw new ApiError(401, "videoId is not Valid");
+    throw new ApiError(401, "videoId is n not Valid");
   }
 
   const video = await Video.aggregate([
@@ -248,6 +278,9 @@ const getVideoById = asyncHandler(async (req, res) => {
         totalLikes: {
           $size: "$likes",
         },
+        isLikedByUser: {
+          $in: [new mongoose.Types.ObjectId(req.user._id), "$likes.likedBy"],
+        },
       },
     },
   ]);
@@ -263,26 +296,88 @@ const getVideoById = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, video, "video fetched successfully"));
 });
 
+// const updateVideo = asyncHandler(async (req, res) => {
+//   const { videoId } = req.params;
+//   const { title, description } = req.body;
+//   const thumbnailLocalPath = req.file?.path;
+//   //TODO: update video details like title, description, thumbnail
+//   if (!req.user) {
+//     throw new ApiError(401, "Unauthorized Request");
+//   }
+//   if (!videoId) {
+//     throw new ApiError(400, "videoId is missing");
+//   }
+//   if (!isValidObjectId(videoId)) {
+//     throw new ApiError(400, "videoId is not valid");
+//   }
+//   if (!title && !description) {
+//     throw new ApiError(400, "title or description missing");
+//   }
+//   if (!thumbnailLocalPath) {
+//     throw new ApiError(400, "thumbnail is missing");
+//   }
+//   let updateDetail = {};
+//   if (title) {
+//     updateDetail.title = title;
+//   }
+//   if (description) {
+//     updateDetail.description = description;
+//   }
+//   const video = await Video.findById(videoId);
+//   const publicId = video.thumbnail.split("/").pop().split(".")[0];
+//   // console.log(publicId);
+//   const deleteResponse = await deleteFromCloudinary(publicId);
+//   if (!deleteResponse) {
+//     throw new ApiError(500, "Error while deleting thumbnail from cloudinary ");
+//   }
+//   // console.log("thumbnail deleted from cloudinary");
+//   const thumbnail = await uploadOnCloudinary(thumbnailLocalPath);
+//   if (!thumbnail) {
+//     throw new ApiError(500, "Error while uploading thumbnail from cloudinary ");
+//   }
+//   // console.log("thumbnail upload response:", thumbnail);
+//   // console.log("thumbnail uploaded on cloudinary");
+//   updateDetail.thumbnail = thumbnail.url;
+//   const response = await Video.findByIdAndUpdate(videoId, updateDetail, {
+//     new: true,
+//   });
+
+//   if (!response) {
+//     throw new ApiError(500, "Error while updating db ");
+//   }
+
+//   return res
+//     .status(200)
+//     .json(new ApiResponse(200, response, "Video updated successfully"));
+// });
+
 const updateVideo = asyncHandler(async (req, res) => {
   const { videoId } = req.params;
   const { title, description } = req.body;
   const thumbnailLocalPath = req.file?.path;
-  //TODO: update video details like title, description, thumbnail
+
+  // Ensure the user is authenticated
   if (!req.user) {
     throw new ApiError(401, "Unauthorized Request");
   }
+
+  // Validate the videoId
   if (!videoId) {
     throw new ApiError(400, "videoId is missing");
   }
   if (!isValidObjectId(videoId)) {
     throw new ApiError(400, "videoId is not valid");
   }
-  if (!title && !description) {
-    throw new ApiError(400, "title or description missing");
+
+  // Validate that at least one field is provided
+  if (!title && !description && !thumbnailLocalPath) {
+    throw new ApiError(
+      400,
+      "At least one field (title, description, or thumbnail) must be provided"
+    );
   }
-  if (!thumbnailLocalPath) {
-    throw new ApiError(400, "thumbnail is missing");
-  }
+
+  // Build the update object dynamically
   let updateDetail = {};
   if (title) {
     updateDetail.title = title;
@@ -290,32 +385,105 @@ const updateVideo = asyncHandler(async (req, res) => {
   if (description) {
     updateDetail.description = description;
   }
+
   const video = await Video.findById(videoId);
-  const publicId = video.thumbnail.split("/").pop().split(".")[0];
-  // console.log(publicId);
-  const deleteResponse = await deleteFromCloudinary(publicId);
-  if (!deleteResponse) {
-    throw new ApiError(500, "Error while deleting thumbnail from cloudinary ");
+  if (!video) {
+    throw new ApiError(404, "Video not found");
   }
-  // console.log("thumbnail deleted from cloudinary");
-  const thumbnail = await uploadOnCloudinary(thumbnailLocalPath);
-  if (!thumbnail) {
-    throw new ApiError(500, "Error while uploading thumbnail from cloudinary ");
+
+  // If there's a thumbnail to update, handle the cloudinary operations
+  if (thumbnailLocalPath) {
+    const publicId = video.thumbnail.split("/").pop().split(".")[0];
+
+    // Delete the old thumbnail from cloudinary
+    const deleteResponse = await deleteFromCloudinary(publicId);
+    if (!deleteResponse) {
+      throw new ApiError(
+        500,
+        "Error while deleting the previous thumbnail from Cloudinary"
+      );
+    }
+
+    // Upload the new thumbnail to cloudinary
+    const thumbnail = await uploadOnCloudinary(thumbnailLocalPath);
+    if (!thumbnail) {
+      throw new ApiError(
+        500,
+        "Error while uploading the new thumbnail to Cloudinary"
+      );
+    }
+
+    // Update the new thumbnail URL
+    updateDetail.thumbnail = thumbnail.url;
   }
-  // console.log("thumbnail upload response:", thumbnail);
-  // console.log("thumbnail uploaded on cloudinary");
-  updateDetail.thumbnail = thumbnail.url;
-  const response = await Video.findByIdAndUpdate(videoId, updateDetail, {
+
+  // Update the video details in the database
+  const updatedVideo = await Video.findByIdAndUpdate(videoId, updateDetail, {
     new: true,
   });
 
-  if (!response) {
-    throw new ApiError(500, "Error while updating db ");
+  if (!updatedVideo) {
+    throw new ApiError(500, "Error while updating the video details");
+  }
+
+  // Return the updated video details
+  return res
+    .status(200)
+    .json(new ApiResponse(200, updatedVideo, "Video updated successfully"));
+});
+
+const getAllVideosOfCurrentUser = asyncHandler(async (req, res) => {
+  if (!req.user) {
+    throw new ApiError(401, "Unauthorized Request");
+  }
+
+  const videos = await Video.aggregate([
+    {
+      $match: {
+        owner: new mongoose.Types.ObjectId(req.user._id),
+      },
+    },
+    {
+      $lookup: {
+        from: "users",
+        localField: "owner",
+        foreignField: "_id",
+        as: "owner",
+        pipeline: [
+          {
+            $project: {
+              username: 1,
+              avatar: 1,
+            },
+          },
+        ],
+      },
+    },
+    {
+      $unwind: "$owner",
+    },
+  ]);
+
+  if (!videos) {
+    throw new ApiError(404, "No videos found for the user");
+  }
+  if (videos.length === 0) {
+    return res
+      .status(200)
+      .json(new ApiResponse(200, [], " user videos fetched successfully"));
   }
 
   return res
     .status(200)
-    .json(new ApiResponse(200, response, "Video updated successfully"));
+    .json(new ApiResponse(200, videos, " user videos fetched successfully"));
 });
 
-export { publishVideo, deleteVideo, getAllVideos, getVideoById, updateVideo };
+export {
+  publishVideo,
+  deleteVideo,
+  getAllVideos,
+  getVideoById,
+  updateVideo,
+  addVideoView,
+  getAllVideosOfCurrentUser,
+};

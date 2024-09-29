@@ -12,6 +12,6 @@ router.use(verifyJWT);
 
 router.route("/:videoId").post(toggleVideoLike);
 router.route("/c/:commentId").post(toggleCommentLike);
-router.route("/").get(getLikedVideos);
+router.route("/b").get(getLikedVideos);
 
 export default router;

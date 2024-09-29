@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
+import { ApiError } from "./utils/ApiError.js";
 
 const app = express();
 
@@ -33,5 +34,26 @@ app.use("/api/v1/comment", commentRouter);
 app.use("/api/v1/like", likeRouter);
 app.use("/api/v1/tweet", tweetRouter);
 app.use("/api/v1/playlist", playlistRouter);
+
+// Error-handling middleware
+app.use((err, req, res, next) => {
+  // Check if it's an instance of your custom ApiError
+  if (err instanceof ApiError) {
+    // Use the ApiError's toJson method to format the error response
+    return res.status(err.statusCode).json({
+      success: err.success,
+      message: err.message,
+      statusCode: err.statusCode,
+      errors: err.errors || null,
+    });
+  }
+
+  // For unexpected errors, return a generic response
+  return res.status(500).json({
+    success: false,
+    message: "An unexpected error occurred",
+    stack: process.env.NODE_ENV === "production" ? undefined : err.stack,
+  });
+});
 
 export default app;

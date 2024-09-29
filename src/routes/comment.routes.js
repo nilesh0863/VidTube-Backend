@@ -9,13 +9,13 @@ import {
 
 const router = Router();
 
-router.use(verifyJWT);
+// router.use(verifyJWT);
 
 //secure
 
-router.route("/add/:videoId").post(addComment);
+router.route("/add/:videoId").post(verifyJWT, addComment);
 router.route("/:videoId").get(getVideoComments);
-router.route("/:commentId").patch(updateComment);
-router.route("/:commentId").delete(deleteComment);
+router.route("/:commentId").patch(verifyJWT, updateComment);
+router.route("/:commentId").delete(verifyJWT, deleteComment);
 
 export default router;

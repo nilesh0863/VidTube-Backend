@@ -8,6 +8,8 @@ import {
 import { ApiResponse } from "../utils/ApiResponse.js";
 import jwt from "jsonwebtoken";
 import mongoose from "mongoose";
+import { Video } from "../models/video.model.js";
+import { isValidObjectId } from "mongoose";
 
 const generateAccessAndRefreshToken = async (userId) => {
   const user = await User.findById(userId);
@@ -51,35 +53,37 @@ const registerUser = asyncHandler(async (req, res) => {
   }
   //multer gives file access through middleware
 
-  console.log(req.files);
+  // console.log(req.files);
 
-  const avatarLocalPath = req.files?.avatar[0]?.path;
+  // const avatarLocalPath = req.files?.avatar[0]?.path;
   // const coverImageLocalPath = req.files?.coverImage[0]?.path;
 
-  let coverImageLocalPath;
-  if (
-    req.files &&
-    Array.isArray(req.files.coverImage) &&
-    req.files.coverImage.length > 0
-  ) {
-    coverImageLocalPath = req.files.coverImage[0].path;
-  }
+  // let coverImageLocalPath;
+  // if (
+  //   req.files &&
+  //   Array.isArray(req.files.coverImage) &&
+  //   req.files.coverImage.length > 0
+  // ) {
+  //   coverImageLocalPath = req.files.coverImage[0].path;
+  // }
 
-  if (!avatarLocalPath) {
-    throw new ApiError(400, "Avatar file is required");
-  }
+  // if (!avatarLocalPath) {
+  //   throw new ApiError(400, "Avatar file is required");
+  // }
 
-  const avatar = await uploadOnCloudinary(avatarLocalPath);
-  const coverImage = await uploadOnCloudinary(coverImageLocalPath);
+  // const avatar = await uploadOnCloudinary(avatarLocalPath);
+  // const coverImage = await uploadOnCloudinary(coverImageLocalPath);
 
-  if (!avatar) {
-    throw new ApiError(400, "Avatar file is required");
-  }
+  // if (!avatar) {
+  //   throw new ApiError(400, "Avatar file is required");
+  // }
 
   const user = await User.create({
     fullName,
-    avatar: avatar.url,
-    coverImage: coverImage?.url || "",
+    // avatar: avatar.url,
+    // coverImage: coverImage?.url || "",
+    avatar: "",
+    coverImage: "",
     email,
     password,
     username: username.toLowerCase(),
@@ -245,13 +249,83 @@ const changeCurrentPassword = asyncHandler(async (req, res) => {
 });
 
 const getCurrentUser = asyncHandler(async (req, res) => {
-  const user = req.user;
-  if (!user) {
-    throw new ApiError(401, "Unauthorized Access");
+  //check we get username or not
+  if (!req.user) {
+    throw new ApiError(401, "unauthorized Access");
   }
+
+  //aggregation pipline
+  const channel = await User.aggregate([
+    {
+      //this is first stage
+      $match: {
+        _id: new mongoose.Types.ObjectId(req.user._id),
+      },
+      //from this stage we get the specific user that channel details we want
+    },
+    {
+      //this is second stage
+      $lookup: {
+        from: "subscriptions", // we have to convert this model name in lowercase and plural and this is subscription model
+        localField: "_id", // we are writing pipeline in user so this is User id
+        foreignField: "channel", // this is subscription model field
+        as: "subscribers", // we have given this stage 2 data a name that we can refer in below stages
+        // and in this stage we get all document of channell and its subscriber ex:(i have 25000 subscribers on my channel)
+      },
+    },
+    {
+      //this is third stage
+      //in this stage we want channels that current user subscribedTO ex:(i have suscribed 25channels on youtube)
+      $lookup: {
+        from: "subscriptions",
+        localField: "_id",
+        foreignField: "subscriber",
+        as: "subscribedTo",
+      },
+    },
+    {
+      //$addFields = this add additional fields in User
+      $addFields: {
+        //calculate total subscribers
+        subscribersCount: {
+          $size: "$subscribers", //we have to use $ because this is field and this is from stage two
+        },
+        //calculat total channels that user subscribed
+        channelsSubscribedToCount: {
+          $size: "$subscribedTo",
+        },
+        //subscriber button value true or false like if true then grey and false then red
+      },
+    },
+    {
+      //$project = this is used so that we can give selected fields
+      //we have write 1 for every field that we have to pass, this 1 work as flag
+      $project: {
+        fullName: 1,
+        username: 1,
+        email: 1,
+        subscribersCount: 1,
+        channelsSubscribedToCount: 1,
+        avatar: 1,
+        coverImage: 1,
+      },
+    },
+  ]);
+  if (!channel?.length) {
+    throw new ApiError(404, "channel does not exists");
+  }
+
   return res
     .status(200)
-    .json(new ApiResponse(200, user, "Current user Fetched Scuccessfully"));
+    .json(
+      new ApiResponse(200, channel[0], "user channel fetched successfully")
+    );
+  // if (!user) {
+  //   throw new ApiError(401, "Unauthorized Access");
+  // }
+  // return res
+  //   .status(200)
+  //   .json(new ApiResponse(200, user, "Current user Fetched Scuccessfully"));
 });
 
 const updateAccountDetails = asyncHandler(async (req, res) => {
@@ -448,6 +522,98 @@ const getUserChannelProfile = asyncHandler(async (req, res) => {
     );
 });
 
+const getUserChannelProfileById = asyncHandler(async (req, res) => {
+  //get username from url
+  const { userId } = req.params;
+
+  //check we get username or not
+  if (!userId) {
+    throw new ApiError(401, "userId is missing");
+  }
+
+  if (!isValidObjectId(userId)) {
+    throw new ApiError(401, "invalid userId");
+  }
+
+  //aggregation pipline
+  const channel = await User.aggregate([
+    {
+      //this is first stage
+      $match: {
+        _id: new mongoose.Types.ObjectId(userId),
+      },
+      //from this stage we get the specific user that channel details we want
+    },
+    {
+      //this is second stage
+      $lookup: {
+        from: "subscriptions", // we have to convert this model name in lowercase and plural and this is subscription model
+        localField: "_id", // we are writing pipeline in user so this is User id
+        foreignField: "channel", // this is subscription model field
+        as: "subscribers", // we have given this stage 2 data a name that we can refer in below stages
+        // and in this stage we get all document of channell and its subscriber ex:(i have 25000 subscribers on my channel)
+      },
+    },
+    {
+      //this is third stage
+      //in this stage we want channels that current user subscribedTO ex:(i have suscribed 25channels on youtube)
+      $lookup: {
+        from: "subscriptions",
+        localField: "_id",
+        foreignField: "subscriber",
+        as: "subscribedTo",
+      },
+    },
+    {
+      //$addFields = this add additional fields in User
+      $addFields: {
+        //calculate total subscribers
+        subscribersCount: {
+          $size: "$subscribers", //we have to use $ because this is field and this is from stage two
+        },
+        //calculat total channels that user subscribed
+        channelsSubscribedToCount: {
+          $size: "$subscribedTo",
+        },
+        //subscriber button value true or false like if true then grey and false then red
+        isSubscribed: {
+          // so for this we have to chack that we present in subscribers data or not if we present means we have subscribed this channel
+          // $cond = this is used for condition like if else
+          $cond: {
+            //$in = look userid in subscribers and it work on both arrays and object
+            if: { $in: [req.user?._id, "$subscribers.subscriber"] },
+            then: true,
+            else: false,
+          },
+        },
+      },
+    },
+    {
+      //$project = this is used so that we can give selected fields
+      //we have write 1 for every field that we have to pass, this 1 work as flag
+      $project: {
+        fullName: 1,
+        username: 1,
+        email: 1,
+        subscribersCount: 1,
+        channelsSubscribedToCount: 1,
+        avatar: 1,
+        coverImage: 1,
+        isSubscribed: 1,
+      },
+    },
+  ]);
+  if (!channel?.length) {
+    throw new ApiError(404, "channel does not exists");
+  }
+
+  return res
+    .status(200)
+    .json(
+      new ApiResponse(200, channel[0], "user channel fetched successfully")
+    );
+});
+
 const getWatchHistory = asyncHandler(async (req, res) => {
   if (!req.user) {
     throw new ApiError(401, "Unauthorized Request");
@@ -516,6 +682,58 @@ const getWatchHistory = asyncHandler(async (req, res) => {
     );
 });
 
+const addToWatchHistory = asyncHandler(async (req, res) => {
+  const { videoId } = req.params;
+  if (!req.user) {
+    throw new ApiError(401, "Unauthorized request");
+  }
+  if (!videoId) {
+    throw new ApiError(400, "Video Id is missing");
+  }
+
+  if (!isValidObjectId(videoId)) {
+    throw new ApiError(400, "Video Id is Invalid");
+  }
+  const video = await Video.findById(videoId);
+
+  if (!video) {
+    throw new ApiError(400, "Video not found");
+  }
+
+  const user = await User.findById(req.user._id);
+  if (!user) {
+    throw new ApiError(400, "User not found");
+  }
+
+  const videoIndex = user.watchHistory.findIndex(
+    (historyVideoId) => historyVideoId.toString() === videoId
+  );
+
+  if (videoIndex !== -1) {
+    user.watchHistory.splice(videoIndex, 1);
+  }
+
+  user.watchHistory.unshift(videoId);
+
+  const MAX_HISTORY_LIMIT = 50;
+
+  if (user.watchHistory.length > MAX_HISTORY_LIMIT) {
+    user.watchHistory.pop(); // Remove the oldest video if the limit is exceeded
+  }
+
+  await user.save();
+
+  return res
+    .status(200)
+    .json(
+      new ApiResponse(
+        200,
+        user.watchHistory,
+        "video successfully added to watchHistory"
+      )
+    );
+});
+
 export {
   registerUser,
   loginUser,
@@ -528,4 +746,6 @@ export {
   updateUserCoverImage,
   getUserChannelProfile,
   getWatchHistory,
+  addToWatchHistory,
+  getUserChannelProfileById,
 };

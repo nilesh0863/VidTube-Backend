@@ -172,6 +172,90 @@ const getUserPlaylists = asyncHandler(async (req, res) => {
     .status(200)
     .json(new ApiResponse(200, response, "Playlists fetched successfully"));
 });
+const getCurrentUserPlaylists = asyncHandler(async (req, res) => {
+  //TODO: get user playlists
+  if (!req.user) {
+    throw new ApiError(401, "unauthorized access");
+  }
+  const userId = req.user._id;
+  const playlist = await Playlist.findOne({ owner: userId });
+  if (!playlist) {
+    throw new ApiError(404, "Playlists not found");
+  }
+  const response = await Playlist.aggregate([
+    {
+      $match: {
+        owner: new mongoose.Types.ObjectId(userId),
+      },
+    },
+    {
+      $lookup: {
+        from: "videos",
+        localField: "videos",
+        foreignField: "_id",
+        as: "videos",
+        pipeline: [
+          {
+            $project: {
+              thumbnail: 1,
+              views: 1,
+            },
+          },
+        ],
+      },
+    },
+    {
+      $lookup: {
+        from: "users",
+        localField: "owner",
+        foreignField: "_id",
+        as: "owner",
+        pipeline: [
+          {
+            $project: {
+              username: 1,
+              avatar: 1,
+            },
+          },
+        ],
+      },
+    },
+    { $unwind: "$owner" },
+    {
+      $addFields: {
+        videosCount: {
+          $size: "$videos",
+        },
+        totalViews: {
+          $sum: "$videos.views",
+        },
+        thumbnail: {
+          $first: "$videos.thumbnail", // to show one thumbnail to show to use as whlole playlist thumbnail
+        },
+        // owner: "$owner",
+      },
+    },
+    {
+      $project: {
+        name: 1,
+        description: 1,
+        videosCount: 1,
+        totalViews: 1,
+        thumbnail: 1,
+        owner: 1,
+      },
+    },
+  ]);
+  //   console.log("Aggregate reponse : ", response);
+
+  if (!response) {
+    throw new ApiError(500, "Error while fetching playlists");
+  }
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, response, "Playlists fetched successfully"));
+});
 
 const getPlaylistById = asyncHandler(async (req, res) => {
   const { playlistId } = req.params;
@@ -361,27 +445,34 @@ const updatePlaylist = asyncHandler(async (req, res) => {
   if (!req.user) {
     throw new ApiError(401, "Unauthorized Request");
   }
-  if (!name || !description) {
-    throw new ApiError(400, "name or description missing");
+  if (!name && !description) {
+    throw new ApiError(400, "atleast one field required ");
   }
   const existingPlaylist = await Playlist.findById(playlistId);
 
   if (existingPlaylist.owner.toString() !== req.user._id.toString()) {
     throw new ApiError(400, "You are not authorize to update this playlist");
   }
+  const data = {};
 
-  const playlist = await Playlist.findByIdAndUpdate(playlistId, {
-    name,
-    description,
+  if (name) {
+    data.name = name;
+  }
+  if (description) {
+    data.description = description;
+  }
+
+  const playlist = await Playlist.findByIdAndUpdate(playlistId, data, {
+    new: true,
   });
 
   if (!playlist) {
-    throw new ApiError(500, "Error while creating playlist");
+    throw new ApiError(500, "Error while updating playlist");
   }
 
   return res
     .status(200)
-    .json(new ApiResponse(200, playlist, "Playlist created successfully"));
+    .json(new ApiResponse(200, playlist, "Playlist updated successfully"));
 });
 
 export {
@@ -392,4 +483,5 @@ export {
   removeVideoFromPlaylist,
   deletePlaylist,
   updatePlaylist,
+  getCurrentUserPlaylists,
 };
